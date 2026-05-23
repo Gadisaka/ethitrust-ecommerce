@@ -578,7 +578,17 @@ const createOrdersWithEscrow = async (req, res) => {
         _id: { $in: createdOrders.map((o) => o._id) },
       });
     }
-    logger.error({ err: error.message }, "Escrow checkout failed");
+    logger.error({ err: error.message, code: error.code }, "Escrow checkout failed");
+
+    if (error.code === "EthitrustAuthError") {
+      return res.status(502).json({
+        message:
+          "Ethitrust rejected the API key (403). On Render, set ETHITRUST_API_KEY to your org key from the Ethitrust dashboard (same value as local .env). Also verify ETHITRUST_BASE_URL=https://api.ethitrust.me",
+        error: error.message,
+        code: error.code,
+      });
+    }
+
     return res.status(500).json({
       message: "Error creating escrow checkout",
       error: error.message,

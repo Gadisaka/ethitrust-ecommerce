@@ -44,11 +44,13 @@ app.use(
 );
 
 // Ethitrust webhooks: raw body required for HMAC verification (must be before JSON parser)
-app.post(
-  "/webhooks/ethitrust",
+const webhookHandler = [
   express.raw({ type: "application/json" }),
   handleEthitrustWebhook,
-);
+];
+app.post("/webhooks/ethitrust", ...webhookHandler);
+// Alias matching Ethitrust dashboard default path (/api/v1/webhooks/ethitrust)
+app.post("/api/v1/webhooks/ethitrust", ...webhookHandler);
 
 app.use(bodyParser.json());
 

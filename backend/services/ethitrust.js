@@ -13,6 +13,7 @@ async function getEthitrustClient() {
       const { EthitrustClient } = await import("@ethitrust/sdk");
       return new EthitrustClient({
         apiKey: config.ethitrust.apiKey,
+        apiKeyHeader: config.ethitrust.apiKeyHeader,
         baseUrl: config.ethitrust.baseUrl,
         timeoutMs: config.ethitrust.timeoutMs,
         maxRetries: config.ethitrust.maxRetries,

@@ -1,5 +1,10 @@
 require("dotenv").config();
 
+function trimEnv(val) {
+  if (val === undefined || val === null) return "";
+  return String(val).trim();
+}
+
 function parseBool(val, defaultVal) {
   if (val === undefined || val === "") return defaultVal;
   return String(val).toLowerCase() === "true" || val === "1";
@@ -10,23 +15,26 @@ function parseIntEnv(val, defaultVal) {
   return Number.isFinite(n) && n > 0 ? n : defaultVal;
 }
 
-const baseUrl =
+const rawBaseUrl =
   process.env.ETHITRUST_BASE_URL ||
-  process.env.ETHITRUST_API_BASE_URL?.replace(/\/v1\/?$/, "") ||
+  process.env.ETHITRUST_API_BASE_URL ||
   "https://api.ethitrust.me";
+
+// Normalise legacy values like https://api.ethitrust.me/v1
+const baseUrl = rawBaseUrl.replace(/\/v1\/?$/, "").replace(/\/$/, "");
 
 const config = {
   enableEscrow: parseBool(process.env.ENABLE_ESCROW, true),
   ethitrust: {
-    apiKey: process.env.ETHITRUST_API_KEY || "",
-    webhookSecret: process.env.ETHITRUST_WEBHOOK_SECRET || "",
-    baseUrl: baseUrl.replace(/\/$/, ""),
+    apiKey: trimEnv(process.env.ETHITRUST_API_KEY),
+    apiKeyHeader: trimEnv(process.env.ETHITRUST_API_KEY_HEADER) || "X-API-KEY",
+    webhookSecret: trimEnv(process.env.ETHITRUST_WEBHOOK_SECRET),
+    baseUrl,
     timeoutMs: parseIntEnv(process.env.ETHITRUST_TIMEOUT_MS, 30000),
     maxRetries: parseIntEnv(process.env.ETHITRUST_MAX_RETRIES, 2),
     sellerEmail:
-      process.env.ETHITRUST_SELLER_EMAIL ||
-      process.env.ETHITRUST_INVITEE_EMAIL ||
-      "",
+      trimEnv(process.env.ETHITRUST_SELLER_EMAIL) ||
+      trimEnv(process.env.ETHITRUST_INVITEE_EMAIL),
     inspectionPeriodHours: parseIntEnv(
       process.env.ETHITRUST_INSPECTION_PERIOD,
       72
@@ -48,6 +56,11 @@ function validateEscrowConfig() {
   if (missing.length > 0) {
     console.warn(
       `[escrow] ENABLE_ESCROW=true but missing env: ${missing.join(", ")}`
+    );
+  } else {
+    const keyPreview = config.ethitrust.apiKey.slice(0, 8);
+    console.log(
+      `[escrow] configured baseUrl=${config.baseUrl} apiKey=${keyPreview}… seller=${config.ethitrust.sellerEmail}`
     );
   }
 }
