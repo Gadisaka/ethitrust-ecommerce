@@ -1,6 +1,10 @@
 const crypto = require("crypto");
 const { config } = require("../config/env");
 const logger = require("../utils/logger");
+const {
+  describeEthitrustBlock,
+  isCloudflareChallenge,
+} = require("../utils/ethitrustDiagnostics");
 
 let clientPromise = null;
 
@@ -91,10 +95,20 @@ async function createOrgEscrow({
     return { escrowId: String(escrowId), raw: data };
   } catch (err) {
     const mapped = mapEthitrustError(err);
-    logger.error({ err: mapped, idempotencyKey, status: err.status, body: err.body }, "Escrow creation failed");
-    const e = new Error(mapped.message);
+    const blockHint = describeEthitrustBlock(err.status, err.body);
+    logger.error(
+      {
+        err: mapped,
+        idempotencyKey,
+        status: err.status,
+        cloudflare: isCloudflareChallenge(err.body),
+      },
+      "Escrow creation failed"
+    );
+    const e = new Error(blockHint || mapped.message);
     e.code = mapped.code;
     e.retryable = mapped.retryable;
+    e.cloudflareBlocked = Boolean(blockHint && isCloudflareChallenge(err.body));
     throw e;
   }
 }

@@ -580,15 +580,17 @@ const createOrdersWithEscrow = async (req, res) => {
     }
     logger.error({ err: error.message, code: error.code }, "Escrow checkout failed");
 
-    if (error.code === "EthitrustAuthError") {
-      const plain403 = /403 Forbidden/.test(error.message) && !/Invalid organization/i.test(error.message);
+    if (error.code === "EthitrustAuthError" || error.cloudflareBlocked) {
       return res.status(502).json({
-        message: plain403
-          ? "Ethitrust returned 403 Forbidden without an API error body. Your API key is likely fine, but requests from Render's IP may be blocked by Ethitrust/WAF. Contact Ethitrust support to allow cloud hosting egress IPs, or check GET /api/health/ethitrust on this server."
-          : "Ethitrust rejected API credentials. Re-save ETHITRUST_API_KEY on Render (no quotes/spaces) and check GET /api/health/ethitrust.",
+        message:
+          error.message ||
+          "Ethitrust API blocked from this server. See /api/health/ethitrust.",
         error: error.message,
         code: error.code,
+        cloudflareBlocked: Boolean(error.cloudflareBlocked),
         diagnosticUrl: "/api/health/ethitrust",
+        actionRequired:
+          "Contact Ethitrust support: ask them to disable Cloudflare bot challenges for POST/GET /api/v1/org-escrows from server IPs (Render.com hosting).",
       });
     }
 

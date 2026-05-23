@@ -1,6 +1,10 @@
 const { config } = require("../config/env");
 const { mapEthitrustError } = require("../services/ethitrust");
 const logger = require("../utils/logger");
+const {
+  isCloudflareChallenge,
+  describeEthitrustBlock,
+} = require("../utils/ethitrustDiagnostics");
 
 const PROBE_ESCROW_ID = "00000000-0000-0000-0000-000000000000";
 
@@ -38,6 +42,14 @@ function classifyAuthProbe(status, body) {
     };
   }
   if (status === 403) {
+    if (isCloudflareChallenge(body)) {
+      return {
+        ok: false,
+        auth: "cloudflare_blocked",
+        note:
+          "Cloudflare bot protection returned an HTML challenge page instead of Ethitrust JSON. Ask Ethitrust to exempt /api/v1/* from Cloudflare or allowlist Render egress IPs.",
+      };
+    }
     const isPlainForbidden =
       !body ||
       (typeof body === "string" && body.includes("Forbidden")) ||
@@ -46,7 +58,7 @@ function classifyAuthProbe(status, body) {
       ok: false,
       auth: isPlainForbidden ? "blocked_or_forbidden" : "forbidden",
       note: isPlainForbidden
-        ? "403 without Ethitrust JSON — likely IP/WAF block from cloud host (Render). Contact Ethitrust to allow server egress IPs."
+        ? "403 without Ethitrust JSON — likely blocked from this hosting provider."
         : "Ethitrust returned 403 for this org/key",
     };
   }
@@ -91,12 +103,14 @@ async function pingEthitrustApi() {
     }
 
     const classification = classifyAuthProbe(res.status, body);
+    const blockedHint = describeEthitrustBlock(res.status, body);
 
     return {
       ok: classification.ok,
       status: res.status,
       statusText: res.statusText,
       classification,
+      blockedHint,
       body: typeof body === "string" ? body.slice(0, 200) : body,
     };
   } catch (err) {
