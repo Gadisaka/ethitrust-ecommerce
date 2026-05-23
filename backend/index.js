@@ -15,7 +15,9 @@ const orderRoutes = require("./routes/order.route");
 const uploadRoutes = require("./config/uploadRoute");
 const adminRoutes = require("./routes/admin.route");
 const settingsRoutes = require("./routes/settings.route");
-const { ethitrustHealthHandler } = require("./controllers/ethitrustHealth.controller");
+const {
+  ethitrustHealthHandler,
+} = require("./controllers/ethitrustHealth.controller");
 
 // const dotenv = require('dotenv');
 
@@ -28,6 +30,7 @@ const defaultOrigins = [
   "http://127.0.0.1:5173",
   "http://localhost:8080",
   "http://192.168.56.1:8080",
+  "https://ethitrust-ecommerce.vercel.app/",
 ];
 const extraOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(",")
