@@ -1,5 +1,6 @@
 const crypto = require("crypto");
 const Order = require("../models/Order");
+const User = require("../models/User");
 const Product = require("../models/Product");
 const PaymentTransaction = require("../models/PaymentTransaction");
 const { verifyTransaction } = require("../config/verifyTransaction");
@@ -400,8 +401,18 @@ const verifyTransactionForOrder = async (req, res) => {
   }
 };
 
+async function resolveBuyerEmail(req) {
+  const fromToken = req.user?.email?.trim();
+  if (fromToken) return fromToken;
+
+  const userId = req.user?.id || req.user?._id;
+  if (!userId) return null;
+
+  const user = await User.findById(userId).select("email").lean();
+  return user?.email?.trim() || null;
+}
+
 const createOrdersWithEscrow = async (req, res) => {
-  const inviteeEmail = config.ethitrust.sellerEmail;
   const inspectionHours = config.ethitrust.inspectionPeriodHours;
   const createdOrders = [];
 
@@ -417,10 +428,11 @@ const createOrdersWithEscrow = async (req, res) => {
       return res.status(400).json({ message: "items are required" });
     }
 
-    if (!inviteeEmail) {
-      return res.status(500).json({
+    const buyerEmail = await resolveBuyerEmail(req);
+    if (!buyerEmail) {
+      return res.status(400).json({
         message:
-          "Escrow is not configured: set ETHITRUST_SELLER_EMAIL (invitee / seller email).",
+          "Your account must have an email to start escrow checkout. Log in again or update your profile.",
       });
     }
 
@@ -478,7 +490,8 @@ const createOrdersWithEscrow = async (req, res) => {
       createdOrders.push(order);
     }
 
-    const amountMinorUnits = Math.round(sumTotalMoney * 100);
+    // Ethitrust amount is in ETB major units (168 = ETB 168.00), not minor units/cents.
+    const escrowAmount = Math.round(sumTotalMoney * 100) / 100;
     const title =
       createdOrders.length > 1
         ? `${titleHint} +${createdOrders.length - 1} more`
@@ -486,8 +499,8 @@ const createOrdersWithEscrow = async (req, res) => {
 
     const { escrowId, raw } = await createOrgEscrow({
       title,
-      amountMinorUnits,
-      inviteeEmail,
+      amountEtB: escrowAmount,
+      inviteeEmail: buyerEmail,
       escrowType: "onetime",
       inspectionPeriodHours: inspectionHours,
       idempotencyKey: `order-${idempotencyKey}`,
@@ -547,7 +560,7 @@ const createOrdersWithEscrow = async (req, res) => {
           paymentTransaction: txDoc?._id,
           escrowStatus: "pending",
           orderStatus: "ESCROW_CREATED",
-          escrowAmount: amountMinorUnits,
+          escrowAmount: escrowAmount,
           escrowCurrency: "ETB",
           escrowCreatedAt: now,
           escrowMetadata: raw,

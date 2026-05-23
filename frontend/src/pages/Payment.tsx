@@ -300,12 +300,12 @@ const Payment = () => {
                   <CardContent className="space-y-4">
                     <p className="text-muted-foreground leading-relaxed">
                       Funds are held in Ethitrust escrow until delivery milestones
-                      complete. The seller receives an email invite. Your payment is
-                      protected for the full inspection period.
+                      complete. You will receive an email invite at your account
+                      email. Your payment is protected for the full inspection period.
                     </p>
                     <ul className="text-sm text-muted-foreground space-y-1 list-disc pl-5">
                       <li>Buyer protection until escrow releases</li>
-                      <li>Seller must accept the escrow invite</li>
+                      <li>Accept the escrow invite sent to your email</li>
                       <li>Status syncs automatically via webhook</li>
                     </ul>
                     {submitError && (

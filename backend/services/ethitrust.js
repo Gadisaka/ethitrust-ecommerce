@@ -43,11 +43,13 @@ function mapEthitrustError(err) {
 
 /**
  * Create an org escrow (one invite + amount).
+ * @param {number} amountEtB - Total in ETB major units (e.g. 168 for ETB 168.00)
+ * @param {string} inviteeEmail - Buyer email (Ethitrust invitee / counterparty)
  * @returns {Promise<{ escrowId: string, raw: unknown }>}
  */
 async function createOrgEscrow({
   title,
-  amountMinorUnits,
+  amountEtB,
   inviteeEmail,
   escrowType = "onetime",
   inspectionPeriodHours = 72,
@@ -55,8 +57,13 @@ async function createOrgEscrow({
   currency = "ETB",
 }) {
   if (!inviteeEmail) {
-    throw new Error("inviteeEmail is required for Ethitrust escrow");
+    throw new Error("inviteeEmail (buyer email) is required for Ethitrust escrow");
   }
+  if (!Number.isFinite(amountEtB) || amountEtB <= 0) {
+    throw new Error("amountEtB must be a positive number");
+  }
+
+  const amount = Math.round(amountEtB * 100) / 100;
 
   const client = await getEthitrustClient();
   const extras = idempotencyKey ? { idempotencyKey } : {};
@@ -65,7 +72,7 @@ async function createOrgEscrow({
     const data = await client.orgEscrows.create(
       {
         title,
-        amount: amountMinorUnits,
+        amount,
         invitee_email: inviteeEmail,
         escrow_type: escrowType,
         inspection_period: inspectionPeriodHours,
@@ -88,7 +95,7 @@ async function createOrgEscrow({
     }
 
     logger.info(
-      { escrowId: String(escrowId), idempotencyKey },
+      { escrowId: String(escrowId), idempotencyKey, amountEtB: amount },
       "Escrow created"
     );
 

@@ -495,7 +495,7 @@ const AdminDashboard: React.FC = () => {
                   <div className="text-right">
                     <p className="text-sm text-gray-600">Total</p>
                     <p className="font-semibold">
-                      ETB {o.totalMoney.toFixed(2)}
+                      ETB {(o.totalMoney ?? 0).toFixed(2)}
                     </p>
                   </div>
                 </div>

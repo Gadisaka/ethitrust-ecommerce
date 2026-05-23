@@ -104,6 +104,16 @@ describe("buildCheckoutIdempotencyKey", () => {
   });
 });
 
+describe("escrow amount", () => {
+  test("uses ETB major units not cents (89+79=168)", () => {
+    const sumTotalMoney = 89 + 79;
+    const escrowAmount = Math.round(sumTotalMoney * 100) / 100;
+    assert.equal(escrowAmount, 168);
+    // Previous bug multiplied by 100 and sent 16800 → ETB 16,800 on Ethitrust.
+    assert.notEqual(Math.round(sumTotalMoney * 100), escrowAmount);
+  });
+});
+
 describe("mapEthitrustError", () => {
   test("marks network errors retryable", () => {
     const { mapEthitrustError } = require("../services/ethitrust");

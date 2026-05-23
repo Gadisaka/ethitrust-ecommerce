@@ -21,7 +21,7 @@ function getEthitrustConfigSnapshot() {
     apiKeyLength: key.length,
     apiKeyPrefix: key ? key.slice(0, 8) : null,
     apiKeySuffix: key ? key.slice(-4) : null,
-    sellerEmailPresent: Boolean(config.ethitrust.sellerEmail),
+    buyerEmailSource: "jwt_at_checkout",
     webhookSecretPresent: Boolean(config.ethitrust.webhookSecret),
   };
 }

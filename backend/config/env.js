@@ -42,9 +42,6 @@ const config = {
     baseUrl,
     timeoutMs: parseIntEnv(process.env.ETHITRUST_TIMEOUT_MS, 30000),
     maxRetries: parseIntEnv(process.env.ETHITRUST_MAX_RETRIES, 2),
-    sellerEmail:
-      trimEnv(process.env.ETHITRUST_SELLER_EMAIL) ||
-      trimEnv(process.env.ETHITRUST_INVITEE_EMAIL),
     inspectionPeriodHours: parseIntEnv(
       process.env.ETHITRUST_INSPECTION_PERIOD,
       72
@@ -62,7 +59,6 @@ function validateEscrowConfig() {
   const missing = [];
   if (!config.ethitrust.apiKey) missing.push("ETHITRUST_API_KEY");
   if (!config.ethitrust.webhookSecret) missing.push("ETHITRUST_WEBHOOK_SECRET");
-  if (!config.ethitrust.sellerEmail) missing.push("ETHITRUST_SELLER_EMAIL");
   if (missing.length > 0) {
     console.warn(
       `[escrow] ENABLE_ESCROW=true but missing env: ${missing.join(", ")}`
@@ -70,7 +66,7 @@ function validateEscrowConfig() {
   } else {
     const keyPreview = config.ethitrust.apiKey.slice(0, 8);
     console.log(
-      `[escrow] configured baseUrl=${config.ethitrust.baseUrl} header=${config.ethitrust.apiKeyHeader} apiKeyLen=${config.ethitrust.apiKey.length} apiKey=${keyPreview}… seller=${config.ethitrust.sellerEmail}`
+      `[escrow] configured baseUrl=${config.ethitrust.baseUrl} header=${config.ethitrust.apiKeyHeader} apiKeyLen=${config.ethitrust.apiKey.length} apiKey=${keyPreview}… buyerEmail=from JWT at checkout`
     );
   }
 }
