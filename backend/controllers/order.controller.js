@@ -1,13 +1,15 @@
+const crypto = require("crypto");
 const Order = require("../models/Order");
 const Product = require("../models/Product");
 const PaymentTransaction = require("../models/PaymentTransaction");
 const { verifyTransaction } = require("../config/verifyTransaction");
 const ReceiverSettings = require("../models/ReceiverSettings");
 const { DEFAULTS } = require("./settings.controller");
-const { randomUUID } = require("crypto");
-const { createOrgEscrow } = require("../services/ethitrust");
+const { createOrgEscrow, getEscrowDetail } = require("../services/ethitrust");
+const { reconcileEscrowFromApi } = require("../services/escrowWebhookHandler");
+const { config } = require("../config/env");
+const logger = require("../utils/logger");
 
-// Helper to get current receiver settings (with fallbacks)
 async function getCurrentReceiverSettings() {
   const doc = await ReceiverSettings.findOne({
     key: "receiver_settings_singleton",
@@ -22,22 +24,60 @@ async function getCurrentReceiverSettings() {
   };
 }
 
-// Create a new order
+function buildCheckoutIdempotencyKey(userId, items, checkoutId) {
+  if (checkoutId) return String(checkoutId);
+  const normalized = [...items]
+    .map((i) => `${i.productId}:${i.quantity}`)
+    .sort()
+    .join("|");
+  return crypto
+    .createHash("sha256")
+    .update(`${userId}:${normalized}`)
+    .digest("hex");
+}
+
+async function validateCartItems(items) {
+  const validated = [];
+  for (const item of items) {
+    const { productId, quantity } = item || {};
+    if (!productId || !quantity || quantity <= 0) {
+      throw Object.assign(new Error("Each item requires productId and positive quantity"), {
+        status: 400,
+      });
+    }
+
+    const product = await Product.findById(productId);
+    if (!product) {
+      throw Object.assign(new Error("Product not found"), { status: 404 });
+    }
+    if (!product.inStock) {
+      throw Object.assign(
+        new Error(`Product "${product.name}" is out of stock`),
+        { status: 400 }
+      );
+    }
+
+    validated.push({ product, productId, quantity, totalMoney: product.price * quantity });
+  }
+  return validated;
+}
+
 const createOrder = async (req, res) => {
   try {
     const { productId, amount, totalMoney } = req.body;
 
-    // Basic validation
     if (!productId || !amount || !totalMoney) {
       return res
         .status(400)
         .json({ message: "productId, amount and totalMoney are required" });
     }
 
-    // Ensure product exists
     const product = await Product.findById(productId);
     if (!product) {
       return res.status(404).json({ message: "Product not found" });
+    }
+    if (!product.inStock) {
+      return res.status(400).json({ message: "Product is out of stock" });
     }
 
     const order = await Order.create({
@@ -45,6 +85,7 @@ const createOrder = async (req, res) => {
       userId: req.user?.id || req.user?._id,
       amount,
       totalMoney,
+      orderStatus: "PENDING",
     });
 
     await order.populate("productId");
@@ -58,7 +99,6 @@ const createOrder = async (req, res) => {
   }
 };
 
-// Get all orders for the authenticated user
 const getMyOrders = async (req, res) => {
   try {
     const userId = req.user?.id || req.user?._id;
@@ -79,8 +119,45 @@ const getMyOrders = async (req, res) => {
   }
 };
 
-module.exports = { createOrder, getMyOrders };
-// Admin: get all orders
+const getEscrowStatusForOrder = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?._id;
+    const order = await Order.findOne({ _id: req.params.id, userId })
+      .populate({ path: "productId", select: "name price image" })
+      .populate({
+        path: "paymentTransaction",
+        select: "transactionId provider status verifiedAt",
+      });
+
+    if (!order) {
+      return res.status(404).json({ message: "Order not found" });
+    }
+
+    const escrowId = order.ethitrustEscrowId || order.escrowId;
+    let apiDetail = null;
+
+    if (escrowId && order.paymentProvider === "ethitrust") {
+      try {
+        apiDetail = await getEscrowDetail(escrowId);
+        await reconcileEscrowFromApi(escrowId, apiDetail);
+        const refreshed = await Order.findById(order._id)
+          .populate({ path: "productId", select: "name price image" })
+          .populate({
+            path: "paymentTransaction",
+            select: "transactionId provider status verifiedAt",
+          });
+        return res.json({ order: refreshed, apiDetail });
+      } catch (err) {
+        logger.warn({ orderId: order._id, err: err.message }, "Escrow poll sync failed");
+      }
+    }
+
+    return res.json({ order, apiDetail });
+  } catch (error) {
+    return res.status(500).json({ message: "Error fetching escrow status", error: error.message });
+  }
+};
+
 const getAllOrdersAdmin = async (req, res) => {
   try {
     const orders = await Order.find()
@@ -104,10 +181,7 @@ const getAllOrdersAdmin = async (req, res) => {
   }
 };
 
-module.exports.getAllOrdersAdmin = getAllOrdersAdmin;
-
-// Create multiple orders from cart with payment info (single transactionId)
-module.exports.createOrdersWithPayment = async (req, res) => {
+const createOrdersWithPayment = async (req, res) => {
   try {
     const userId = req.user?.id || req.user?._id;
     const { items } = req.body;
@@ -116,28 +190,22 @@ module.exports.createOrdersWithPayment = async (req, res) => {
       return res.status(400).json({ message: "items are required" });
     }
 
-    // Build orders per item
+    let validated;
+    try {
+      validated = await validateCartItems(items);
+    } catch (err) {
+      return res.status(err.status || 400).json({ message: err.message });
+    }
+
     const createdOrders = [];
-    for (const item of items) {
-      const { productId, quantity } = item || {};
-      if (!productId || !quantity || quantity <= 0) {
-        return res.status(400).json({
-          message: "Each item requires productId and positive quantity",
-        });
-      }
-
-      const product = await Product.findById(productId);
-      if (!product) {
-        return res.status(404).json({ message: "Product not found" });
-      }
-
-      const totalMoney = product.price * quantity;
+    for (const { productId, quantity, totalMoney } of validated) {
       const order = await Order.create({
         productId,
         userId,
         amount: quantity,
         totalMoney,
         paymentStatus: "pending",
+        orderStatus: "PAYMENT_PENDING",
       });
 
       await order.populate("productId");
@@ -153,8 +221,7 @@ module.exports.createOrdersWithPayment = async (req, res) => {
   }
 };
 
-// Verify a transaction: ensure unused, valid, and amount matches before saving
-module.exports.verifyTransactionForOrder = async (req, res) => {
+const verifyTransactionForOrder = async (req, res) => {
   try {
     const userId = req.user?.id || req.user?._id;
     const { transactionId, provider, orderIds, payerName, payerAccountNumber } =
@@ -172,7 +239,6 @@ module.exports.verifyTransactionForOrder = async (req, res) => {
       return res.status(400).json({ message: "Invalid provider" });
     }
 
-    // Ensure txId has never been used before
     const existingTx = await PaymentTransaction.findOne({
       transactionId: txId,
     });
@@ -182,11 +248,10 @@ module.exports.verifyTransactionForOrder = async (req, res) => {
         .json({ message: "Transaction ID has already been used" });
     }
 
-    // Must provide the specific orders being paid
     if (!Array.isArray(orderIds) || orderIds.length === 0) {
       return res.status(400).json({ message: "orderIds are required" });
     }
-    // Fetch and assert ownership and pending status
+
     const orders = await Order.find({
       _id: { $in: orderIds },
       userId,
@@ -216,10 +281,8 @@ module.exports.verifyTransactionForOrder = async (req, res) => {
           };
 
     const verification = await verifyTransaction(normalizedProvider, payload);
-
     const isSuccess = Boolean(verification?.success);
 
-    // For CBE: ensure transferredAmount matches expected total (sum of orders)
     if (normalizedProvider === "cbe" && isSuccess) {
       const details =
         verification?.transactionDetails ||
@@ -248,7 +311,6 @@ module.exports.verifyTransactionForOrder = async (req, res) => {
       }
     }
 
-    // For Telebirr: ensure received amount matches expected total (sum only)
     if (normalizedProvider === "telebirr" && isSuccess) {
       const details =
         verification?.transactionDetails ||
@@ -287,7 +349,6 @@ module.exports.verifyTransactionForOrder = async (req, res) => {
       });
     }
 
-    // Create the transaction record now that it passed all checks
     let txDoc;
     try {
       txDoc = await PaymentTransaction.create({
@@ -310,7 +371,6 @@ module.exports.verifyTransactionForOrder = async (req, res) => {
       throw e;
     }
 
-    // Attach transaction and mark orders as verified
     const result = await Order.updateMany(
       { _id: { $in: orderIds }, userId },
       {
@@ -340,18 +400,18 @@ module.exports.verifyTransactionForOrder = async (req, res) => {
   }
 };
 
-// Checkout cart via Ethitrust escrow (replaces manual CBE/Telebirr verification flow)
 const createOrdersWithEscrow = async (req, res) => {
-  const inviteeEmail =
-    process.env.ETHITRUST_SELLER_EMAIL ||
-    process.env.ETHITRUST_INVITEE_EMAIL;
-  const inspectionHours = Number(
-    process.env.ETHITRUST_INSPECTION_PERIOD || 72
-  );
+  const inviteeEmail = config.ethitrust.sellerEmail;
+  const inspectionHours = config.ethitrust.inspectionPeriodHours;
   const createdOrders = [];
+
   try {
+    if (!config.enableEscrow) {
+      return res.status(503).json({ message: "Escrow checkout is disabled" });
+    }
+
     const userId = req.user?.id || req.user?._id;
-    const { items } = req.body;
+    const { items, checkoutId } = req.body;
 
     if (!Array.isArray(items) || items.length === 0) {
       return res.status(400).json({ message: "items are required" });
@@ -364,23 +424,39 @@ const createOrdersWithEscrow = async (req, res) => {
       });
     }
 
+    const idempotencyKey = buildCheckoutIdempotencyKey(userId, items, checkoutId);
+
+    const existingOrders = await Order.find({
+      userId,
+      checkoutIdempotencyKey: idempotencyKey,
+      ethitrustEscrowId: { $exists: true, $ne: null },
+    })
+      .populate({ path: "productId", select: "name price image" })
+      .populate({ path: "userId", select: "name email" });
+
+    if (existingOrders.length > 0) {
+      const escrowId =
+        existingOrders[0].ethitrustEscrowId || existingOrders[0].escrowId;
+      return res.status(200).json({
+        orders: existingOrders,
+        escrowId,
+        orderStatus: existingOrders[0].orderStatus,
+        inspectionPeriodHours: existingOrders[0].inspectionPeriodHours,
+        idempotent: true,
+      });
+    }
+
+    let validated;
+    try {
+      validated = await validateCartItems(items);
+    } catch (err) {
+      return res.status(err.status || 400).json({ message: err.message });
+    }
+
     let sumTotalMoney = 0;
     let titleHint = "";
 
-    for (const item of items) {
-      const { productId, quantity } = item || {};
-      if (!productId || !quantity || quantity <= 0) {
-        return res.status(400).json({
-          message: "Each item requires productId and positive quantity",
-        });
-      }
-
-      const product = await Product.findById(productId);
-      if (!product) {
-        return res.status(404).json({ message: "Product not found" });
-      }
-
-      const totalMoney = product.price * quantity;
+    for (const { product, productId, quantity, totalMoney } of validated) {
       sumTotalMoney += totalMoney;
       if (!titleHint) {
         titleHint = `${product.name} (×${quantity})`;
@@ -392,6 +468,9 @@ const createOrdersWithEscrow = async (req, res) => {
         amount: quantity,
         totalMoney,
         paymentStatus: "pending",
+        orderStatus: "PENDING",
+        checkoutIdempotencyKey: idempotencyKey,
+        inspectionPeriodHours: inspectionHours,
       });
 
       await order.populate("productId");
@@ -399,25 +478,24 @@ const createOrdersWithEscrow = async (req, res) => {
       createdOrders.push(order);
     }
 
-    // Amount: API sample used integer minor units (e.g. 45000 = 450.00)
     const amountMinorUnits = Math.round(sumTotalMoney * 100);
     const title =
       createdOrders.length > 1
         ? `${titleHint} +${createdOrders.length - 1} more`
         : titleHint || "Store order";
 
-    const idempotencyKey = randomUUID();
-
-    const { escrowId } = await createOrgEscrow({
+    const { escrowId, raw } = await createOrgEscrow({
       title,
       amountMinorUnits,
       inviteeEmail,
       escrowType: "onetime",
       inspectionPeriodHours: inspectionHours,
-      idempotencyKey,
+      idempotencyKey: `order-${idempotencyKey}`,
+      currency: "ETB",
     });
 
     const orderIds = createdOrders.map((o) => o._id);
+    const now = new Date();
 
     let txDoc;
     try {
@@ -430,6 +508,24 @@ const createOrdersWithEscrow = async (req, res) => {
       });
     } catch (e) {
       if (e && e.code === 11000) {
+        const existingTx = await PaymentTransaction.findOne({
+          transactionId: escrowId,
+        });
+        if (existingTx) {
+          const linked = await Order.find({ _id: { $in: existingTx.orders } });
+          if (linked.length) {
+            await Order.deleteMany({
+              _id: { $in: createdOrders.map((o) => o._id) },
+            });
+            return res.status(200).json({
+              orders: linked,
+              escrowId,
+              orderStatus: linked[0]?.orderStatus,
+              inspectionPeriodHours: linked[0]?.inspectionPeriodHours,
+              idempotent: true,
+            });
+          }
+        }
         await Order.deleteMany({
           _id: { $in: createdOrders.map((o) => o._id) },
         });
@@ -445,18 +541,36 @@ const createOrdersWithEscrow = async (req, res) => {
       {
         $set: {
           ethitrustEscrowId: escrowId,
+          escrowId,
           paymentProvider: "ethitrust",
           transactionId: escrowId,
           paymentTransaction: txDoc?._id,
           escrowStatus: "pending",
+          orderStatus: "ESCROW_CREATED",
+          escrowAmount: amountMinorUnits,
+          escrowCurrency: "ETB",
+          escrowCreatedAt: now,
+          escrowMetadata: raw,
+          escrowLastSyncedAt: now,
         },
       }
     );
 
+    const updatedOrders = await Order.find({ _id: { $in: orderIds } })
+      .populate({ path: "productId", select: "name price image" })
+      .populate({ path: "userId", select: "name email" });
+
+    logger.info(
+      { escrowId, userId, orderCount: orderIds.length, idempotencyKey },
+      "Escrow checkout completed"
+    );
+
     return res.status(201).json({
-      orders: createdOrders,
+      orders: updatedOrders,
       escrowId,
       paymentTransactionId: txDoc?._id,
+      orderStatus: "ESCROW_CREATED",
+      inspectionPeriodHours: inspectionHours,
     });
   } catch (error) {
     if (createdOrders.length > 0) {
@@ -464,11 +578,23 @@ const createOrdersWithEscrow = async (req, res) => {
         _id: { $in: createdOrders.map((o) => o._id) },
       });
     }
+    logger.error({ err: error.message }, "Escrow checkout failed");
     return res.status(500).json({
       message: "Error creating escrow checkout",
       error: error.message,
+      code: error.code,
     });
   }
 };
 
-module.exports.createOrdersWithEscrow = createOrdersWithEscrow;
+module.exports = {
+  createOrder,
+  getMyOrders,
+  getAllOrdersAdmin,
+  createOrdersWithPayment,
+  verifyTransactionForOrder,
+  createOrdersWithEscrow,
+  getEscrowStatusForOrder,
+  buildCheckoutIdempotencyKey,
+  validateCartItems,
+};

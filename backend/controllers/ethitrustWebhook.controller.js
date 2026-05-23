@@ -1,11 +1,22 @@
-const Order = require("../models/Order");
-const PaymentTransaction = require("../models/PaymentTransaction");
+const EscrowWebhookLog = require("../models/EscrowWebhookLog");
+const EscrowEvent = require("../models/EscrowEvent");
 const { verifyWebhookSignature } = require("../services/ethitrust");
+const { processEscrowWebhook, deriveEventId } = require("../services/escrowWebhookHandler");
+const logger = require("../utils/logger");
+
+function sanitizeHeaders(headers) {
+  const safe = { ...headers };
+  delete safe.authorization;
+  delete safe["x-api-key"];
+  return safe;
+}
 
 /**
  * POST /webhooks/ethitrust — raw JSON body required for signature verification.
  */
 async function handleEthitrustWebhook(req, res) {
+  let webhookLog;
+
   try {
     const raw =
       Buffer.isBuffer(req.body) && req.body.length
@@ -17,10 +28,22 @@ async function handleEthitrustWebhook(req, res) {
           );
 
     const sig =
-      req.headers["x-signature"] ||
-      req.headers["X-Signature"];
+      req.headers["x-signature"] || req.headers["X-Signature"];
+
+    webhookLog = await EscrowWebhookLog.create({
+      signature: sig ? "[redacted]" : undefined,
+      headers: sanitizeHeaders(req.headers),
+      payload: { rawLength: raw.length },
+      verified: false,
+      processed: false,
+    });
 
     if (!verifyWebhookSignature(raw, sig)) {
+      logger.warn({ webhookLogId: webhookLog._id }, "Invalid webhook signature");
+      await EscrowWebhookLog.updateOne(
+        { _id: webhookLog._id },
+        { $set: { error: "Invalid signature", verified: false } }
+      );
       return res.status(401).json({ message: "Invalid signature" });
     }
 
@@ -28,89 +51,64 @@ async function handleEthitrustWebhook(req, res) {
     try {
       payload = JSON.parse(raw.toString("utf8"));
     } catch {
+      await EscrowWebhookLog.updateOne(
+        { _id: webhookLog._id },
+        { $set: { error: "Invalid JSON body", verified: true } }
+      );
       return res.status(400).json({ message: "Invalid JSON body" });
     }
 
-    const event = payload?.event;
-    const data = payload?.data || {};
-    const escrowId = data?.escrow_id || data?.escrowId;
-
-    if (!escrowId) {
-      return res.status(400).json({ message: "Missing escrow id in payload" });
-    }
-
-    const statusFromPayload =
-      typeof data?.status === "string" ? data.status : "";
-
-    let paymentStatus;
-    let escrowStatus = statusFromPayload || "";
-
-    if (event === "escrow.completed") {
-      paymentStatus = "verified";
-      escrowStatus = escrowStatus || "completed";
-    } else if (event === "escrow.cancelled" || event === "escrow.expired") {
-      paymentStatus = "failed";
-      if (!escrowStatus) {
-        escrowStatus = event === "escrow.cancelled" ? "cancelled" : "expired";
-      }
-    } else if (event === "escrow.disputed") {
-      escrowStatus = escrowStatus || "disputed";
-    } else if (
-      event === "escrow.invited" ||
-      event === "escrow.active" ||
-      event === "escrow.submitted"
-    ) {
-      if (!escrowStatus) {
-        const map = {
-          "escrow.invited": "invited",
-          "escrow.active": "active",
-          "escrow.submitted": "submitted",
-        };
-        escrowStatus = map[event] || "";
-      }
-    }
-
-    const commonSet = {
-      escrowStatus,
-      paymentData: payload,
-    };
-
-    if (paymentStatus === "verified") {
-      commonSet.paymentStatus = "verified";
-      commonSet.paymentVerifiedAt = new Date();
-      commonSet.paymentProvider = "ethitrust";
-    } else if (paymentStatus === "failed") {
-      commonSet.paymentStatus = "failed";
-      commonSet.paymentProvider = "ethitrust";
-    } else {
-      commonSet.paymentProvider = "ethitrust";
-    }
-
-    await Order.updateMany(
-      { ethitrustEscrowId: String(escrowId) },
-      { $set: commonSet }
+    const eventId = deriveEventId(payload, raw);
+    await EscrowWebhookLog.updateOne(
+      { _id: webhookLog._id },
+      { $set: { payload, verified: true, eventId } }
     );
 
-    const txUpdate = {
-      verificationData: payload,
-    };
-    if (paymentStatus === "verified") {
-      txUpdate.status = "verified";
-      txUpdate.verifiedAt = new Date();
-    } else if (paymentStatus === "failed") {
-      txUpdate.status = "failed";
+    const existingEvent = await EscrowEvent.findOne({
+      eventId,
+      processed: true,
+    }).lean();
+    if (existingEvent) {
+      await EscrowWebhookLog.updateOne(
+        { _id: webhookLog._id },
+        { $set: { processed: true } }
+      );
+      return res.status(200).json({ received: true, duplicate: true });
     }
 
-    await PaymentTransaction.updateOne(
-      { transactionId: String(escrowId), provider: "ethitrust" },
-      { $set: txUpdate }
-    );
+    res.status(200).json({ received: true });
 
-    return res.status(200).json({ received: true });
+    setImmediate(async () => {
+      try {
+        await processEscrowWebhook(payload, raw);
+        await EscrowWebhookLog.updateOne(
+          { _id: webhookLog._id },
+          { $set: { processed: true } }
+        );
+      } catch (error) {
+        logger.error(
+          { err: error.message, eventId, webhookLogId: webhookLog._id },
+          "Async webhook processing failed"
+        );
+        await EscrowWebhookLog.updateOne(
+          { _id: webhookLog._id },
+          { $set: { error: error.message } }
+        );
+      }
+    });
   } catch (error) {
-    return res
-      .status(500)
-      .json({ message: "Webhook handler error", error: error.message });
+    logger.error({ err: error.message }, "Webhook handler error");
+    if (webhookLog?._id) {
+      await EscrowWebhookLog.updateOne(
+        { _id: webhookLog._id },
+        { $set: { error: error.message } }
+      ).catch(() => {});
+    }
+    if (!res.headersSent) {
+      return res
+        .status(500)
+        .json({ message: "Webhook handler error", error: error.message });
+    }
   }
 }
 

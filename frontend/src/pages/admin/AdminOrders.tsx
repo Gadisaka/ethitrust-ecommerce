@@ -6,9 +6,10 @@ import {
   CardTitle,
 } from "../../components/ui/card";
 import { Button } from "../../components/ui/button";
-// Status controls omitted for single-item orders
-import { Search, Package, User, Calendar } from "lucide-react";
+import { Badge } from "../../components/ui/badge";
+import { Search, Package, User, Calendar, RefreshCw, Truck } from "lucide-react";
 import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
 import { useOrderStore, OrderItem } from "../../store/orderStore";
 import { useCategoryStore } from "../../store/categoryStore";
 import { useProductStore } from "../../store/productStore";
@@ -33,28 +34,14 @@ function isPopulatedProduct(
   return typeof product === "object" && product !== null && "price" in product;
 }
 
-interface Order {
-  _id: string;
-  user: {
-    _id: string;
-    name: string;
-    email: string;
-  };
-  items: Array<{
-    product: {
-      _id: string;
-      name: string;
-      price: number;
-      image: string[];
-    };
-    quantity: number;
-  }>;
-  status?: string;
-  createdAt: string;
-}
-
 const AdminOrders: React.FC = () => {
-  const { adminOrders, fetchAllOrdersAdmin, loading } = useOrderStore();
+  const {
+    adminOrders,
+    fetchAllOrdersAdmin,
+    loading,
+    syncEscrowAdmin,
+    updateShipmentAdmin,
+  } = useOrderStore();
   const { categories, fetchCategories } = useCategoryStore();
   const { products, fetchProducts } = useProductStore();
   const [searchTerm, setSearchTerm] = useState("");
@@ -64,16 +51,16 @@ const AdminOrders: React.FC = () => {
   const [dateTo, setDateTo] = useState("");
   const [priceMin, setPriceMin] = useState("");
   const [priceMax, setPriceMax] = useState("");
+  const [escrowFilter, setEscrowFilter] = useState("");
+  const [disputedOnly, setDisputedOnly] = useState(false);
+  const [trackingInputs, setTrackingInputs] = useState<Record<string, string>>({});
+  const [syncingId, setSyncingId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchAllOrdersAdmin();
     fetchCategories();
     fetchProducts();
   }, [fetchAllOrdersAdmin, fetchCategories, fetchProducts]);
-
-  // Status updates not implemented here
-
-  const formatETB = (amount: number) => `ETB ${amount.toFixed(2)}`;
 
   const filteredOrders = adminOrders.filter((order: OrderItem) => {
     const userName: string = isPopulatedUser(order.userId)
@@ -89,7 +76,8 @@ const AdminOrders: React.FC = () => {
     const matchesSearch =
       userName.toLowerCase().includes(term) ||
       userEmail.toLowerCase().includes(term) ||
-      productName.toLowerCase().includes(term);
+      productName.toLowerCase().includes(term) ||
+      (order.ethitrustEscrowId || "").toLowerCase().includes(term);
 
     const matchesCategory = selectedCategory
       ? isPopulatedProduct(order.productId) &&
@@ -114,6 +102,18 @@ const AdminOrders: React.FC = () => {
     const minOk = priceMin ? price >= parseFloat(priceMin) : true;
     const maxOk = priceMax ? price <= parseFloat(priceMax) : true;
 
+    const matchesEscrow =
+      !escrowFilter ||
+      order.paymentProvider === "ethitrust" ||
+      (escrowFilter === "non-escrow" && order.paymentProvider !== "ethitrust");
+
+    if (escrowFilter === "ethitrust" && order.paymentProvider !== "ethitrust") {
+      return false;
+    }
+
+    const matchesDisputed =
+      !disputedOnly || order.orderStatus === "DISPUTED";
+
     return (
       matchesSearch &&
       matchesCategory &&
@@ -121,9 +121,24 @@ const AdminOrders: React.FC = () => {
       fromOk &&
       toOk &&
       minOk &&
-      maxOk
+      maxOk &&
+      matchesEscrow &&
+      matchesDisputed
     );
   });
+
+  const handleSync = async (orderId: string) => {
+    setSyncingId(orderId);
+    await syncEscrowAdmin(orderId);
+    setSyncingId(null);
+  };
+
+  const handleShipment = async (orderId: string) => {
+    const tracking = trackingInputs[orderId]?.trim();
+    if (!tracking) return;
+    await updateShipmentAdmin(orderId, tracking);
+    setTrackingInputs((prev) => ({ ...prev, [orderId]: "" }));
+  };
 
   if (loading) {
     return (
@@ -138,7 +153,7 @@ const AdminOrders: React.FC = () => {
       <div className="flex justify-between items-center">
         <div>
           <h1 className="text-3xl font-bold text-gray-900">Orders</h1>
-          <p className="text-gray-600 mt-2">Manage customer orders</p>
+          <p className="text-gray-600 mt-2">Manage customer orders and escrow</p>
         </div>
       </div>
 
@@ -146,7 +161,7 @@ const AdminOrders: React.FC = () => {
         <div className="md:col-span-2 flex items-center space-x-2">
           <Search className="w-4 h-4 text-gray-400" />
           <Input
-            placeholder="Search orders..."
+            placeholder="Search orders, escrow ID..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
           />
@@ -168,44 +183,22 @@ const AdminOrders: React.FC = () => {
         <div>
           <select
             className="border rounded px-3 py-2 w-full"
-            value={selectedProduct}
-            onChange={(e) => setSelectedProduct(e.target.value)}
+            value={escrowFilter}
+            onChange={(e) => setEscrowFilter(e.target.value)}
           >
-            <option value="">All Products</option>
-            {products.map((p) => (
-              <option key={p._id} value={p._id}>
-                {p.name}
-              </option>
-            ))}
+            <option value="">All payments</option>
+            <option value="ethitrust">Ethitrust only</option>
+            <option value="non-escrow">Non-escrow</option>
           </select>
         </div>
-        <div>
-          <Input
-            type="date"
-            value={dateFrom}
-            onChange={(e) => setDateFrom(e.target.value)}
+        <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            id="disputedOnly"
+            checked={disputedOnly}
+            onChange={(e) => setDisputedOnly(e.target.checked)}
           />
-        </div>
-        <div>
-          <Input
-            type="date"
-            value={dateTo}
-            onChange={(e) => setDateTo(e.target.value)}
-          />
-        </div>
-        <div className="md:col-span-2 grid grid-cols-2 gap-2">
-          <Input
-            type="number"
-            placeholder="Min Price"
-            value={priceMin}
-            onChange={(e) => setPriceMin(e.target.value)}
-          />
-          <Input
-            type="number"
-            placeholder="Max Price"
-            value={priceMax}
-            onChange={(e) => setPriceMax(e.target.value)}
-          />
+          <Label htmlFor="disputedOnly">Disputed only</Label>
         </div>
       </div>
 
@@ -213,13 +206,22 @@ const AdminOrders: React.FC = () => {
         {filteredOrders.map((order) => (
           <Card key={order._id}>
             <CardHeader>
-              <div className="flex justify-between items-start">
+              <div className="flex justify-between items-start flex-wrap gap-2">
                 <div>
-                  <CardTitle className="flex items-center space-x-2">
+                  <CardTitle className="flex items-center space-x-2 flex-wrap">
                     <Package className="w-5 h-5" />
                     <span>Order #{order._id.slice(-8)}</span>
+                    <Badge variant="secondary">
+                      {order.orderStatus?.replace(/_/g, " ") || order.paymentStatus}
+                    </Badge>
+                    {order.paymentProvider === "ethitrust" && (
+                      <Badge variant="outline">Escrow</Badge>
+                    )}
+                    {order.orderStatus === "DISPUTED" && (
+                      <Badge variant="destructive">Dispute</Badge>
+                    )}
                   </CardTitle>
-                  <div className="flex items-center space-x-4 mt-2">
+                  <div className="flex items-center space-x-4 mt-2 flex-wrap">
                     <div className="flex items-center space-x-1 text-sm text-gray-600">
                       <User className="w-4 h-4" />
                       <span>
@@ -232,71 +234,106 @@ const AdminOrders: React.FC = () => {
                         {new Date(order.createdAt).toLocaleDateString()}
                       </span>
                     </div>
+                    {order.ethitrustEscrowId && (
+                      <span className="text-xs font-mono text-muted-foreground break-all">
+                        {order.ethitrustEscrowId}
+                      </span>
+                    )}
                   </div>
                 </div>
-                {/* Status controls omitted */}
+                <div className="flex gap-2 flex-wrap">
+                  {order.paymentProvider === "ethitrust" && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={syncingId === order._id}
+                      onClick={() => handleSync(order._id)}
+                    >
+                      <RefreshCw className="w-4 h-4 mr-1" />
+                      {syncingId === order._id ? "Syncing…" : "Sync escrow"}
+                    </Button>
+                  )}
+                </div>
               </div>
             </CardHeader>
             <CardContent>
               <div className="space-y-4">
-                <div>
-                  <h4 className="font-medium text-gray-900 mb-2">
-                    Order Item:
-                  </h4>
-                  <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                    <div className="flex items-center space-x-3">
-                      <div className="w-12 h-12 bg-gray-200 rounded-lg overflow-hidden">
-                        {isPopulatedProduct(order.productId) &&
-                        order.productId.image?.[0] ? (
-                          <img
-                            src={order.productId.image[0]}
-                            alt={order.productId.name}
-                            className="w-12 h-12 object-cover"
-                          />
-                        ) : (
-                          <Package className="w-6 h-6 text-gray-500 m-3" />
-                        )}
-                      </div>
-                      <div>
-                        <p className="font-medium">
-                          {isPopulatedProduct(order.productId)
-                            ? order.productId.name
-                            : (order.productId as string)}
-                        </p>
-                        <p className="text-sm text-gray-500">
-                          Quantity: {order.amount}
-                        </p>
-                      </div>
+                <div className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
+                  <div className="flex items-center space-x-3">
+                    <div className="w-12 h-12 bg-gray-200 rounded-lg overflow-hidden">
+                      {isPopulatedProduct(order.productId) &&
+                      order.productId.image?.[0] ? (
+                        <img
+                          src={order.productId.image[0]}
+                          alt={order.productId.name}
+                          className="w-12 h-12 object-cover"
+                        />
+                      ) : (
+                        <Package className="w-6 h-6 text-gray-500 m-3" />
+                      )}
                     </div>
-                    <div className="text-right">
+                    <div>
                       <p className="font-medium">
                         {isPopulatedProduct(order.productId)
-                          ? `ETB ${order.productId.price.toFixed(2)}`
-                          : "ETB —"}
+                          ? order.productId.name
+                          : String(order.productId)}
                       </p>
                       <p className="text-sm text-gray-500">
-                        Total: ETB {order.totalMoney.toFixed(2)}
+                        Qty: {order.amount} · ETB {order.totalMoney.toFixed(2)}
                       </p>
                     </div>
                   </div>
                 </div>
 
-                <div className="border-t pt-4">
-                  <div className="flex justify-between items-center">
-                    <div>
-                      <p className="text-sm text-gray-600">Customer Email:</p>
-                      <p className="font-medium">
-                        {isPopulatedUser(order.userId)
-                          ? order.userId.email
-                          : ""}
-                      </p>
+                {order.paymentProvider === "ethitrust" &&
+                  !["SHIPPED", "DELIVERED", "ESCROW_COMPLETED", "CANCELLED", "EXPIRED"].includes(
+                    order.orderStatus || ""
+                  ) && (
+                    <div className="flex flex-col sm:flex-row gap-2 items-end border-t pt-4">
+                      <div className="flex-1 w-full">
+                        <Label htmlFor={`track-${order._id}`}>Shipment tracking</Label>
+                        <Input
+                          id={`track-${order._id}`}
+                          placeholder="Tracking number"
+                          value={trackingInputs[order._id] || ""}
+                          onChange={(e) =>
+                            setTrackingInputs((prev) => ({
+                              ...prev,
+                              [order._id]: e.target.value,
+                            }))
+                          }
+                        />
+                      </div>
+                      <Button
+                        size="sm"
+                        onClick={() => handleShipment(order._id)}
+                      >
+                        <Truck className="w-4 h-4 mr-1" />
+                        Mark shipped
+                      </Button>
                     </div>
-                    <div className="text-right">
-                      <p className="text-sm text-gray-600">Total Amount:</p>
-                      <p className="text-xl font-bold text-gray-900">
-                        ETB {order.totalMoney.toFixed(2)}
-                      </p>
-                    </div>
+                  )}
+
+                {order.shipmentTracking && (
+                  <p className="text-sm text-muted-foreground">
+                    Tracking: {order.shipmentTracking}
+                  </p>
+                )}
+
+                <div className="border-t pt-4 flex justify-between items-center">
+                  <div>
+                    <p className="text-sm text-gray-600">Customer Email:</p>
+                    <p className="font-medium">
+                      {isPopulatedUser(order.userId) ? order.userId.email : ""}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-gray-600">Last synced:</p>
+                    <p className="text-sm">
+                      {order.escrowLastSyncedAt
+                        ? new Date(order.escrowLastSyncedAt).toLocaleString()
+                        : "—"}
+                    </p>
                   </div>
                 </div>
               </div>

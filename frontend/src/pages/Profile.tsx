@@ -1,9 +1,11 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useAppContext } from "../context/AppContext";
 import { useAuthStore } from "../store/authStore";
-import { useOrderStore } from "../store/orderStore";
+import { useOrderStore, OrderItem } from "../store/orderStore";
 import { Button } from "../components/ui/button";
+import { Badge } from "../components/ui/badge";
 import { useNavigate } from "react-router-dom";
+import EscrowTimeline from "../components/common/EscrowTimeline";
 import {
   Dialog,
   DialogContent,
@@ -33,7 +35,8 @@ const Profile = () => {
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
-  const { orders, fetchMyOrders, loading } = useOrderStore();
+  const { orders, fetchMyOrders, loading, fetchEscrowStatus } = useOrderStore();
+  const [expandedOrderId, setExpandedOrderId] = useState<string | null>(null);
 
   useEffect(() => {
     fetchMyOrders();
@@ -164,65 +167,100 @@ const Profile = () => {
           <div className="card-elevated p-6">
             <h3 className="text-xl font-semibold mb-4">Recent Orders</h3>
             <Table>
-              <TableCaption>Your recent orders.</TableCaption>
+              <TableCaption>Your recent orders with escrow status.</TableCaption>
               <TableHeader>
                 <TableRow>
-                  {/* <TableHead>Order</TableHead> */}
                   <TableHead>Date</TableHead>
                   <TableHead>Item</TableHead>
-                  <TableHead className="text-right">Price</TableHead>
-                  <TableHead className="text-right">Quantity</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead className="text-right">Total</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {orders.map((order) => {
+                {orders.map((order: OrderItem) => {
                   const product =
                     typeof order.productId === "object"
                       ? order.productId
                       : undefined;
-                  const unitPrice =
-                    product && typeof product !== "string"
-                      ? product.price
-                      : undefined;
                   const totalAmount = order.totalMoney;
+                  const isExpanded = expandedOrderId === order._id;
                   return (
-                    <TableRow key={order._id}>
-                      {/* <TableCell className="font-medium">{order._id}</TableCell> */}
-                      <TableCell>
-                        {new Date(order.createdAt).toLocaleDateString()}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          {product &&
-                            typeof product !== "string" &&
-                            Array.isArray(product.image) &&
-                            product.image[0] && (
-                              <img
-                                src={product.image[0]}
-                                alt={product.name}
-                                className="w-12 h-12 rounded object-cover border"
-                              />
+                    <React.Fragment key={order._id}>
+                      <TableRow>
+                        <TableCell>
+                          {new Date(order.createdAt).toLocaleDateString()}
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            {product &&
+                              typeof product !== "string" &&
+                              Array.isArray(product.image) &&
+                              product.image[0] && (
+                                <img
+                                  src={product.image[0]}
+                                  alt={product.name}
+                                  className="w-12 h-12 rounded object-cover border"
+                                />
+                              )}
+                            <span className="line-clamp-1">
+                              {product && typeof product !== "string"
+                                ? product.name
+                                : "—"}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex flex-col gap-1">
+                            <Badge variant="secondary" className="w-fit text-xs">
+                              {order.orderStatus?.replace(/_/g, " ") || order.paymentStatus || "pending"}
+                            </Badge>
+                            {order.paymentProvider === "ethitrust" && (
+                              <Badge variant="outline" className="w-fit text-xs">
+                                Escrow
+                              </Badge>
                             )}
-                          <span className="line-clamp-1">
-                            {product && typeof product !== "string"
-                              ? product.name
-                              : "—"}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {unitPrice !== undefined
-                          ? `ETB ${unitPrice.toFixed(2)}`
-                          : "—"}
-                      </TableCell>
-                      <TableCell className="text-right">
-                        {order.amount}
-                      </TableCell>
-                      <TableCell className="text-right">{`ETB ${totalAmount.toFixed(
-                        2
-                      )}`}</TableCell>
-                    </TableRow>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">{`ETB ${totalAmount.toFixed(2)}`}</TableCell>
+                        <TableCell className="text-right">
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={async () => {
+                              if (isExpanded) {
+                                setExpandedOrderId(null);
+                              } else {
+                                if (order.paymentProvider === "ethitrust") {
+                                  await fetchEscrowStatus(order._id);
+                                }
+                                setExpandedOrderId(order._id);
+                              }
+                            }}
+                          >
+                            {isExpanded ? "Hide" : "Details"}
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                      {isExpanded && (
+                        <TableRow>
+                          <TableCell colSpan={5} className="bg-muted/30">
+                            <EscrowTimeline
+                              orderStatus={order.orderStatus}
+                              escrowStatus={order.escrowStatus}
+                              inspectionPeriodHours={order.inspectionPeriodHours}
+                              escrowCreatedAt={order.escrowCreatedAt}
+                              escrowCompletedAt={order.escrowCompletedAt}
+                            />
+                            {order.orderStatus === "DELIVERED" && (
+                              <p className="text-sm text-muted-foreground mt-3">
+                                Confirm delivery or open a dispute by contacting support.
+                              </p>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )}
+                    </React.Fragment>
                   );
                 })}
               </TableBody>

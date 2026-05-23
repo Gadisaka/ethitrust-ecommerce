@@ -3,7 +3,9 @@ require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
-const { handleEthitrustWebhook } = require("./controllers/ethitrustWebhook.controller");
+const {
+  handleEthitrustWebhook,
+} = require("./controllers/ethitrustWebhook.controller");
 const productRoutes = require("./routes/product.route");
 const categoryRoutes = require("./routes/category.route");
 const serviceRoutes = require("./routes/service.route");
@@ -23,6 +25,8 @@ const defaultOrigins = [
   "https://mule-mobile.vercel.app",
   "http://localhost:5173",
   "http://127.0.0.1:5173",
+  "http://localhost:8080",
+  "http://192.168.56.1:8080",
 ];
 const extraOrigins = process.env.CORS_ORIGINS
   ? process.env.CORS_ORIGINS.split(",")
@@ -43,7 +47,7 @@ app.use(
 app.post(
   "/webhooks/ethitrust",
   express.raw({ type: "application/json" }),
-  handleEthitrustWebhook
+  handleEthitrustWebhook,
 );
 
 app.use(bodyParser.json());
@@ -61,10 +65,12 @@ app.use("/api/upload", uploadRoutes);
 app.use("/api/settings", settingsRoutes);
 
 const connectDB = require("./config/db");
+const { startEscrowSyncJob } = require("./jobs/escrowSyncJob");
 const PORT = process.env.PORT || 5000;
 
 (async () => {
   await connectDB();
+  startEscrowSyncJob();
   app.listen(PORT, () => {
     console.log(`Server is running on port ${PORT}`);
   });

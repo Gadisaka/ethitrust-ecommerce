@@ -21,38 +21,49 @@ const {
   getAllOrders,
   updateOrderStatus,
 } = require("../controllers/admin.controller");
+const {
+  syncEscrowForOrder,
+  updateShipment,
+  markDelivered,
+  getEscrowEvents,
+  getEscrowWebhookLogs,
+  openDispute,
+  updateDispute,
+} = require("../controllers/escrowAdmin.controller");
 
-// Apply admin middleware to all routes
 router.use(requireAdmin);
 
-// Dashboard
 router.get("/dashboard", getDashboardStats);
 
-// Product Management
 router.get("/products", getAllProducts);
 router.post("/products", createProduct);
 router.put("/products/:id", updateProduct);
 router.delete("/products/:id", deleteProduct);
 
-// Category Management
 router.get("/categories", getAllCategories);
 router.post("/categories", createCategory);
 router.put("/categories/:id", updateCategory);
 router.delete("/categories/:id", deleteCategory);
 
-// Service Management
 router.get("/services", getAllServices);
 router.post("/services", createService);
 router.put("/services/:id", updateService);
 router.delete("/services/:id", deleteService);
 
-// User Management
 router.get("/users", getAllUsers);
 router.put("/users/:id", updateUser);
 router.delete("/users/:id", deleteUser);
 
-// Order Management
 router.get("/orders", getAllOrders);
 router.put("/orders/:id/status", updateOrderStatus);
+router.post("/orders/:id/sync-escrow", syncEscrowForOrder);
+router.patch("/orders/:id/shipment", updateShipment);
+router.patch("/orders/:id/delivery", markDelivered);
+
+router.get("/escrow-events", getEscrowEvents);
+router.get("/escrow-webhook-logs", getEscrowWebhookLogs);
+
+router.post("/disputes/:orderId/open", openDispute);
+router.patch("/disputes/:id", updateDispute);
 
 module.exports = router;

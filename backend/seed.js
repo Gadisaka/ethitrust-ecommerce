@@ -272,7 +272,7 @@ async function seed() {
 
     // Insert categories
     const categoryDocs = await Category.insertMany(
-      categories.map((name) => ({ name }))
+      categories.map((name) => ({ name })),
     );
     const categoryMap = {};
     categoryDocs.forEach((cat) => {

@@ -1,5 +1,6 @@
 const mongoose = require("mongoose");
 require("dotenv").config();
+const { migrateOrderNumbers } = require("./migrateOrders");
 
 const connectDB = async () => {
   if (!process.env.MONGO_URI) {
@@ -12,6 +13,7 @@ const connectDB = async () => {
       //   useUnifiedTopology: true,
     });
     console.log("✅ Connected to MongoDB Atlas");
+    await migrateOrderNumbers();
   } catch (err) {
     console.error("❌ Failed to connect:", err.message);
     process.exit(1);
