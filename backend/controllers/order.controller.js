@@ -581,11 +581,14 @@ const createOrdersWithEscrow = async (req, res) => {
     logger.error({ err: error.message, code: error.code }, "Escrow checkout failed");
 
     if (error.code === "EthitrustAuthError") {
+      const plain403 = /403 Forbidden/.test(error.message) && !/Invalid organization/i.test(error.message);
       return res.status(502).json({
-        message:
-          "Ethitrust rejected the API key (403). On Render, set ETHITRUST_API_KEY to your org key from the Ethitrust dashboard (same value as local .env). Also verify ETHITRUST_BASE_URL=https://api.ethitrust.me",
+        message: plain403
+          ? "Ethitrust returned 403 Forbidden without an API error body. Your API key is likely fine, but requests from Render's IP may be blocked by Ethitrust/WAF. Contact Ethitrust support to allow cloud hosting egress IPs, or check GET /api/health/ethitrust on this server."
+          : "Ethitrust rejected API credentials. Re-save ETHITRUST_API_KEY on Render (no quotes/spaces) and check GET /api/health/ethitrust.",
         error: error.message,
         code: error.code,
+        diagnosticUrl: "/api/health/ethitrust",
       });
     }
 

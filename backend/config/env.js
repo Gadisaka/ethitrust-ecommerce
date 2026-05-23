@@ -2,7 +2,17 @@ require("dotenv").config();
 
 function trimEnv(val) {
   if (val === undefined || val === null) return "";
-  return String(val).trim();
+  let s = String(val).trim();
+  // Render UI sometimes saves values wrapped in quotes — strip them.
+  if (
+    (s.startsWith('"') && s.endsWith('"')) ||
+    (s.startsWith("'") && s.endsWith("'"))
+  ) {
+    s = s.slice(1, -1).trim();
+  }
+  // Remove zero-width / BOM characters from copy-paste.
+  s = s.replace(/[\u200B-\u200D\uFEFF]/g, "");
+  return s;
 }
 
 function parseBool(val, defaultVal) {
@@ -27,7 +37,7 @@ const config = {
   enableEscrow: parseBool(process.env.ENABLE_ESCROW, true),
   ethitrust: {
     apiKey: trimEnv(process.env.ETHITRUST_API_KEY),
-    apiKeyHeader: trimEnv(process.env.ETHITRUST_API_KEY_HEADER) || "X-API-KEY",
+    apiKeyHeader: trimEnv(process.env.ETHITRUST_API_KEY_HEADER) || "X-API-Key",
     webhookSecret: trimEnv(process.env.ETHITRUST_WEBHOOK_SECRET),
     baseUrl,
     timeoutMs: parseIntEnv(process.env.ETHITRUST_TIMEOUT_MS, 30000),
@@ -60,7 +70,7 @@ function validateEscrowConfig() {
   } else {
     const keyPreview = config.ethitrust.apiKey.slice(0, 8);
     console.log(
-      `[escrow] configured baseUrl=${config.baseUrl} apiKey=${keyPreview}… seller=${config.ethitrust.sellerEmail}`
+      `[escrow] configured baseUrl=${config.ethitrust.baseUrl} header=${config.ethitrust.apiKeyHeader} apiKeyLen=${config.ethitrust.apiKey.length} apiKey=${keyPreview}… seller=${config.ethitrust.sellerEmail}`
     );
   }
 }

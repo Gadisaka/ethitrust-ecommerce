@@ -15,6 +15,7 @@ const orderRoutes = require("./routes/order.route");
 const uploadRoutes = require("./config/uploadRoute");
 const adminRoutes = require("./routes/admin.route");
 const settingsRoutes = require("./routes/settings.route");
+const { ethitrustHealthHandler } = require("./controllers/ethitrustHealth.controller");
 
 // const dotenv = require('dotenv');
 
@@ -55,6 +56,9 @@ app.post("/api/v1/webhooks/ethitrust", ...webhookHandler);
 app.use(bodyParser.json());
 
 app.use(bodyParser.urlencoded({ extended: true }));
+
+// Public diagnostic — helps verify Render env + Ethitrust connectivity
+app.get("/api/health/ethitrust", ethitrustHealthHandler);
 
 app.use("/api/products", productRoutes);
 app.use("/api/categories", categoryRoutes);

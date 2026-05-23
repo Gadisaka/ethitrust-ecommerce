@@ -91,7 +91,7 @@ async function createOrgEscrow({
     return { escrowId: String(escrowId), raw: data };
   } catch (err) {
     const mapped = mapEthitrustError(err);
-    logger.error({ err: mapped, idempotencyKey }, "Escrow creation failed");
+    logger.error({ err: mapped, idempotencyKey, status: err.status, body: err.body }, "Escrow creation failed");
     const e = new Error(mapped.message);
     e.code = mapped.code;
     e.retryable = mapped.retryable;
