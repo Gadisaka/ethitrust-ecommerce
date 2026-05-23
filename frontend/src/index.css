@@ -1,0 +1,197 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Mule Mobile Design System - Ethiopian Electronics Store */
+
+@layer base {
+  :root {
+    /* Core Brand Colors */
+    --background: 0 0% 98%;
+    --foreground: 196 100% 15%;
+
+    /* Mule Mobile Brand Colors */
+    --primary: 196 73% 25%; /* #1c5b6a - Main teal */
+    --primary-foreground: 0 0% 98%;
+    --primary-light: 196 73% 35%;
+    --primary-dark: 196 73% 15%;
+
+    /* Yellow Accent */
+    --accent: 45 93% 58%; /* Bright yellow */
+    --accent-foreground: 196 73% 15%;
+    --accent-light: 45 93% 68%;
+    --accent-muted: 45 50% 85%;
+
+    /* Supporting Colors */
+    --secondary: 0 0% 95%;
+    --secondary-foreground: 196 73% 15%;
+
+    --muted: 0 0% 92%;
+    --muted-foreground: 196 20% 45%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 196 73% 15%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 196 73% 15%;
+
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 98%;
+
+    --border: 196 15% 88%;
+    --input: 196 15% 90%;
+    --ring: 196 73% 25%;
+
+    --radius: 0.75rem;
+
+    /* Custom Gradients */
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-light)));
+    --gradient-accent: linear-gradient(135deg, hsl(var(--accent)), hsl(var(--accent-light)));
+    --gradient-hero: linear-gradient(135deg, hsl(var(--primary-dark)), hsl(var(--primary)));
+    --gradient-card: linear-gradient(145deg, hsl(var(--card)), hsl(var(--secondary)));
+
+    /* Shadows */
+    --shadow-soft: 0 2px 8px -2px hsl(var(--primary) / 0.1);
+    --shadow-medium: 0 8px 25px -5px hsl(var(--primary) / 0.15);
+    --shadow-strong: 0 20px 40px -10px hsl(var(--primary) / 0.2);
+    --shadow-accent: 0 4px 15px -3px hsl(var(--accent) / 0.3);
+
+    /* Animations */
+    --transition-smooth: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    --transition-bounce: all 0.4s cubic-bezier(0.68, -0.55, 0.265, 1.55);
+
+    --sidebar-background: 0 0% 98%;
+
+    --sidebar-foreground: 240 5.3% 26.1%;
+
+    --sidebar-primary: 240 5.9% 10%;
+
+    --sidebar-primary-foreground: 0 0% 98%;
+
+    --sidebar-accent: 240 4.8% 95.9%;
+
+    --sidebar-accent-foreground: 240 5.9% 10%;
+
+    --sidebar-border: 220 13% 91%;
+
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+
+  /* Dark mode - keeping existing structure but updating colors */
+  .dark {
+    --background: 196 73% 8%;
+    --foreground: 0 0% 98%;
+    --primary: 45 93% 58%;
+    --primary-foreground: 196 73% 15%;
+    --card: 196 73% 12%;
+    --card-foreground: 0 0% 98%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-inter;
+  }
+}
+
+@layer components {
+  /* Hero Button Variants */
+  .btn-hero {
+    @apply bg-gradient-to-r from-accent to-accent-light text-accent-foreground font-semibold px-8 py-4 rounded-xl shadow-lg hover:shadow-accent transform hover:scale-105 transition-all duration-300;
+  }
+
+  .btn-primary {
+    @apply bg-gradient-to-r from-primary to-primary-light text-primary-foreground font-semibold px-6 py-3 rounded-lg shadow-md hover:shadow-medium transform hover:scale-105 transition-all duration-300;
+  }
+
+  .btn-outline {
+    @apply border-2 border-primary text-primary font-semibold px-6 py-3 rounded-lg hover:bg-primary hover:text-primary-foreground transition-all duration-300;
+  }
+
+  /* Card Variants */
+  .card-elevated {
+    @apply bg-gradient-to-br from-card to-secondary rounded-xl shadow-soft hover:shadow-medium transition-all duration-300 transform hover:-translate-y-1;
+  }
+
+  .card-product {
+    @apply bg-card rounded-lg shadow-soft hover:shadow-medium transition-all duration-300 transform hover:-translate-y-2 border border-border/50;
+  }
+
+  /* Animation Classes */
+  .animate-fade-in {
+    @apply opacity-0 animate-[fadeIn_0.6s_ease-out_forwards];
+  }
+
+  .animate-slide-up {
+    @apply translate-y-8 opacity-0 animate-[slideUp_0.8s_ease-out_forwards];
+  }
+
+  .animate-bounce-in {
+    @apply scale-0 animate-[bounceIn_0.5s_cubic-bezier(0.68,-0.55,0.265,1.55)_forwards];
+  }
+
+  /* Badge Styles */
+  .badge-new {
+    @apply bg-gradient-to-r from-accent to-accent-light text-accent-foreground text-xs font-bold px-2 py-1 rounded-full;
+  }
+
+  .badge-sale {
+    @apply bg-gradient-to-r from-destructive to-red-500 text-destructive-foreground text-xs font-bold px-2 py-1 rounded-full;
+  }
+}
+
+@layer utilities {
+  /* Custom Keyframes */
+  @keyframes fadeIn {
+    to {
+      opacity: 1;
+    }
+  }
+
+  @keyframes slideUp {
+    to {
+      transform: translateY(0);
+      opacity: 1;
+    }
+  }
+
+  @keyframes bounceIn {
+    to {
+      transform: scale(1);
+    }
+  }
+
+  /* Custom Gradients */
+  .gradient-primary {
+    background: var(--gradient-primary);
+  }
+
+  .gradient-accent {
+    background: var(--gradient-accent);
+  }
+
+  .gradient-hero {
+    background: var(--gradient-hero);
+  }
+
+  /* Custom Shadows */
+  .shadow-soft {
+    box-shadow: var(--shadow-soft);
+  }
+
+  .shadow-medium {
+    box-shadow: var(--shadow-medium);
+  }
+
+  .shadow-strong {
+    box-shadow: var(--shadow-strong);
+  }
+
+  .shadow-accent {
+    box-shadow: var(--shadow-accent);
+  }
+}
