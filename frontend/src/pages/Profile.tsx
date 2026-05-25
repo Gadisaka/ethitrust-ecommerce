@@ -252,11 +252,6 @@ const Profile = () => {
                               escrowCreatedAt={order.escrowCreatedAt}
                               escrowCompletedAt={order.escrowCompletedAt}
                             />
-                            {order.orderStatus === "DELIVERED" && (
-                              <p className="text-sm text-muted-foreground mt-3">
-                                Confirm delivery or open a dispute by contacting support.
-                              </p>
-                            )}
                           </TableCell>
                         </TableRow>
                       )}

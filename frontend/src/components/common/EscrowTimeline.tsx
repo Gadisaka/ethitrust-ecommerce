@@ -3,14 +3,12 @@ import { Badge } from "../ui/badge";
 import { CheckCircle2, Circle, Clock } from "lucide-react";
 import { cn } from "@/lib/utils";
 
+// Five steps that map 1-to-1 with Ethitrust escrow milestones.
 const STEPS = [
   { key: "PENDING", label: "Order Created" },
   { key: "ESCROW_CREATED", label: "Escrow Created" },
   { key: "ESCROW_INVITED", label: "Seller Invited" },
   { key: "ESCROW_ACTIVE", label: "Escrow Active" },
-  { key: "SELLER_PROCESSING", label: "Seller Processing" },
-  { key: "SHIPPED", label: "Shipped" },
-  { key: "DELIVERED", label: "Delivered" },
   { key: "ESCROW_COMPLETED", label: "Escrow Released" },
 ];
 
@@ -19,10 +17,60 @@ const STATUS_RANK: Record<string, number> = STEPS.reduce(
   {} as Record<string, number>
 );
 
-STATUS_RANK.DISPUTED = 6;
-STATUS_RANK.CANCELLED = -1;
-STATUS_RANK.EXPIRED = -1;
-STATUS_RANK.PAYMENT_PENDING = 0;
+// Aliases for legacy/extra backend values that don't have their own step.
+// They resolve to the nearest "done" step so existing orders render correctly.
+const LEGACY_RANK: Record<string, number> = {
+  PAYMENT_PENDING: STATUS_RANK.PENDING,
+  // Backend maps Ethitrust "submitted" and "in_review" to these; they sit
+  // between Active and Released.
+  SELLER_PROCESSING: STATUS_RANK.ESCROW_ACTIVE,
+  SHIPPED: STATUS_RANK.ESCROW_ACTIVE,
+  DELIVERED: STATUS_RANK.ESCROW_ACTIVE,
+};
+
+// escrowStatus values that map to the Active rank (covers direct Ethitrust values
+// that arrive before the backend emits the matching orderStatus).
+const ESCROW_STATUS_ACTIVE_ALIASES = new Set(["submitted", "in_review"]);
+
+/**
+ * Resolve the current progress rank from orderStatus + escrowStatus.
+ * Falls back through: STATUS_RANK → LEGACY_RANK → escrowStatus alias → 0.
+ */
+function resolveTimelineRank(
+  orderStatus: string,
+  escrowStatus?: string
+): number {
+  if (STATUS_RANK[orderStatus] !== undefined) return STATUS_RANK[orderStatus];
+  if (LEGACY_RANK[orderStatus] !== undefined) return LEGACY_RANK[orderStatus];
+  if (escrowStatus) {
+    if (escrowStatus === "completed") return STATUS_RANK.ESCROW_COMPLETED;
+    if (ESCROW_STATUS_ACTIVE_ALIASES.has(escrowStatus))
+      return STATUS_RANK.ESCROW_ACTIVE;
+    if (escrowStatus === "active") return STATUS_RANK.ESCROW_ACTIVE;
+    if (escrowStatus === "invited") return STATUS_RANK.ESCROW_INVITED;
+    if (escrowStatus === "pending") return STATUS_RANK.ESCROW_CREATED;
+  }
+  return 0;
+}
+
+// Display-friendly label for the status badge.
+// Avoids showing raw enum strings like SELLER_PROCESSING to users.
+const DISPLAY_LABEL: Record<string, string> = {
+  PENDING: "Order Created",
+  PAYMENT_PENDING: "Order Created",
+  ESCROW_CREATED: "Escrow Created",
+  ESCROW_INVITED: "Seller Invited",
+  ESCROW_ACTIVE: "Escrow Active",
+  SELLER_PROCESSING: "Escrow Active",
+  SHIPPED: "Escrow Active",
+  DELIVERED: "Escrow Active",
+  ESCROW_COMPLETED: "Escrow Released",
+  DISPUTED: "Disputed",
+  CANCELLED: "Cancelled",
+  EXPIRED: "Expired",
+};
+
+const TERMINAL_BAD = new Set(["CANCELLED", "EXPIRED", "DISPUTED"]);
 
 interface EscrowTimelineProps {
   orderStatus?: string;
@@ -41,17 +89,19 @@ export function EscrowTimeline({
   escrowCompletedAt,
   className,
 }: EscrowTimelineProps) {
-  const currentRank = STATUS_RANK[orderStatus] ?? 0;
-  const isTerminalBad =
-    orderStatus === "CANCELLED" ||
-    orderStatus === "EXPIRED" ||
-    orderStatus === "DISPUTED";
+  const isTerminalBad = TERMINAL_BAD.has(orderStatus);
+  const currentRank = isTerminalBad
+    ? -1
+    : resolveTimelineRank(orderStatus, escrowStatus);
+
+  const displayLabel =
+    DISPLAY_LABEL[orderStatus] ?? orderStatus.replace(/_/g, " ");
 
   return (
     <div className={cn("space-y-4", className)}>
       <div className="flex flex-wrap items-center gap-2">
         <Badge variant={isTerminalBad ? "destructive" : "secondary"}>
-          {orderStatus.replace(/_/g, " ")}
+          {displayLabel}
         </Badge>
         {escrowStatus && (
           <Badge variant="outline">Escrow: {escrowStatus}</Badge>
@@ -68,7 +118,7 @@ export function EscrowTimeline({
         {STEPS.map((step) => {
           const stepRank = STATUS_RANK[step.key];
           const done = !isTerminalBad && currentRank >= stepRank;
-          const active = orderStatus === step.key;
+          const active = !isTerminalBad && currentRank === stepRank;
 
           return (
             <li key={step.key} className="ml-4">
