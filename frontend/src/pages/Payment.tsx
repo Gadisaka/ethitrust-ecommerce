@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { ArrowLeft, ShieldCheck, Banknote } from "lucide-react";
+import { ArrowLeft, ShieldCheck, Banknote, Hourglass } from "lucide-react";
 import { Button } from "../components/ui/button";
 import {
   Card,
@@ -204,16 +204,39 @@ const Payment = () => {
                 {escrowResult.escrowId}
               </Badge>
               {order && (
-                <EscrowTimeline
-                  orderStatus={order.orderStatus}
-                  escrowStatus={order.escrowStatus}
-                  inspectionPeriodHours={
-                    order.inspectionPeriodHours ??
-                    escrowResult.inspectionPeriodHours
-                  }
-                  escrowCreatedAt={order.escrowCreatedAt}
-                  escrowCompletedAt={order.escrowCompletedAt}
-                />
+                <>
+                  <EscrowTimeline
+                    orderStatus={order.orderStatus}
+                    escrowStatus={order.escrowStatus}
+                    inspectionPeriodHours={
+                      order.inspectionPeriodHours ??
+                      escrowResult.inspectionPeriodHours
+                    }
+                    escrowCreatedAt={order.escrowCreatedAt}
+                    escrowCompletedAt={order.escrowCompletedAt}
+                  />
+                  {(order.orderStatus === "ESCROW_INVITED" ||
+                    order.escrowStatus === "invited") &&
+                    state.user?.email && (
+                      <div className="flex items-start gap-3 rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 dark:border-amber-700 dark:bg-amber-950/40">
+                        <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-amber-200 text-amber-700 dark:bg-amber-800 dark:text-amber-300">
+                          <Hourglass className="h-4 w-4" />
+                        </span>
+                        <div className="space-y-0.5">
+                          <p className="text-sm font-semibold text-amber-900 dark:text-amber-200">
+                            Action required
+                          </p>
+                          <p className="text-sm text-amber-800 dark:text-amber-300">
+                            Check your email{" "}
+                            <span className="font-medium underline underline-offset-2">
+                              {state.user.email}
+                            </span>{" "}
+                            to activate the escrow.
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                </>
               )}
               <div className="flex gap-3 pt-2">
                 <Button className="flex-1 btn-primary" onClick={() => navigate("/profile")}>
